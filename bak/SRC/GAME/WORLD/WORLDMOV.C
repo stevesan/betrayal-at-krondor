@@ -29,6 +29,7 @@ unsigned long g_dwWorldCrossingCoord = 0x00000000UL;
 short g_nWorldStepSpeed;
 short g_nWorldGridStride;
 long g_lWorldTimePerStep;
+short g_nWorldComboTurn = 0;
 
 void worldmove_dat_load(void) {
     ResFile *file;
@@ -104,13 +105,26 @@ static void render_anim_frame(unsigned long now) {
     }
 }
 
-static int animate_step(WorldPos *from, WorldPos *to) {
+static void render_final_frame(void) {
+    g_graphics_context.wGfxBlitDstPage = g_graphics_context.wGfxBlitSrcPage =
+        g_graphics_context.wVgaPage2Base;
+    world_render_scene_dispatch(0);
+    uiwidget_compass_draw();
+    screen_frame_present();
+}
+
+static int animate_step(WorldPos *from, WorldPos *to, short turn) {
     WorldPos *pos;
+    short *yaw;
+    short yawFrom;
+    short yawTo;
+    long yawDelta;
     unsigned long start;
     unsigned long now;
     unsigned int frame;
 
     pos = &g_world_camera->base.pos;
+    yaw = &g_world_camera->base.orientation.yaw;
     if (pos->xy.nWorld_x != to->xy.nWorld_x || pos->xy.nWorld_y != to->xy.nWorld_y ||
         pos->nWorld_z != to->nWorld_z) {
         return 0;
@@ -123,6 +137,12 @@ static int animate_step(WorldPos *from, WorldPos *to) {
         STEP_ANIM_MAX_DIST) {
         return 0;
     }
+    yawFrom = *yaw;
+    yawTo = yawFrom;
+    if (turn != 0) {
+        worldmove_heading_step(&yawTo, g_nWorldGridStride, turn);
+    }
+    yawDelta = (long)(short)(yawTo - yawFrom);
     start = g_timer_ticks;
     for (;;) {
         now = g_timer_ticks;
@@ -133,13 +153,40 @@ static int animate_step(WorldPos *from, WorldPos *to) {
         pos->xy.nWorld_x = lerp_long(from->xy.nWorld_x, to->xy.nWorld_x, frame, STEP_ANIM_TICKS);
         pos->xy.nWorld_y = lerp_long(from->xy.nWorld_y, to->xy.nWorld_y, frame, STEP_ANIM_TICKS);
         pos->nWorld_z = lerp_long(from->nWorld_z, to->nWorld_z, frame, STEP_ANIM_TICKS);
+        *yaw = (short)(yawFrom + yawDelta * (long)frame / (long)STEP_ANIM_TICKS);
         render_anim_frame(now);
     }
     *pos = *to;
+    *yaw = yawTo;
     return 1;
 }
 
+static int attempt_move(int mode, short *turn);
+
 int far worldmove_party_attempt_move(int mode) {
+    short turn;
+    short deferred;
+    int result;
+
+    turn = g_nWorldComboTurn;
+    g_nWorldComboTurn = 0;
+    deferred = 0;
+    if (g_gameState.nWorldStepPending != 0) {
+        deferred = turn;
+        turn = 0;
+    }
+    result = attempt_move(mode, &turn);
+    if (turn == 0) {
+        turn = deferred;
+    }
+    if (turn != 0) {
+        worldmove_turn_step_smooth(turn);
+        render_final_frame();
+    }
+    return result;
+}
+
+static int attempt_move(int mode, short *turn) {
     int out_target;
     unsigned short saved_crossing_kind;
     unsigned long saved_crossing_coord;
@@ -182,7 +229,9 @@ L_moved:
     czone_resync_on_world_move();
     pos_new = g_world_camera->base.pos;
     if (hotspotevt_activate_at_player() != 0) {
-        if (!animate_step(&pos_save, &pos_new)) {
+        if (animate_step(&pos_save, &pos_new, *turn)) {
+            *turn = 0;
+        } else {
             g_nWorldRenderJitter = RND2(0x10);
         }
         if ((out_dir == 2) || (out_dir == 3)) {

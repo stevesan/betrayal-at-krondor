@@ -15,6 +15,7 @@ extern unsigned long g_dwWorldCrossingCoord;
 extern short g_nWorldStepSpeed;
 extern short g_nWorldGridStride;
 extern long g_lWorldTimePerStep;
+extern short g_nWorldComboTurn;
 
 extern void worldmove_dat_load(void);
 extern void worldmove_combat_zone_snap_pos(void);

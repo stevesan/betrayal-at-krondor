@@ -80,37 +80,57 @@ static int arrow_is_down(unsigned int arrow) {
     }
 }
 
-static unsigned int held_arrow_scan(void) {
-    if (arrow_is_down(0x48))
-        return 0x48;
-    if (arrow_is_down(0x50))
-        return 0x50;
-    if (arrow_is_down(0x4b))
-        return 0x4b;
-    if (arrow_is_down(0x4d))
-        return 0x4d;
+static int is_move_key(unsigned int key) {
+    return key == 0x48 || key == 0x50;
+}
+
+static unsigned int held_arrow_scan(unsigned int a, unsigned int b) {
+    if (arrow_is_down(a))
+        return a;
+    if (arrow_is_down(b))
+        return b;
     return 0;
 }
 
 unsigned int far worldloop_held_arrow_repeat(unsigned int actionId, unsigned int *heldKey,
                                              unsigned long *nextRepeat) {
+    unsigned int move;
+    unsigned int turn;
+
+    g_nWorldComboTurn = 0;
     if (key_is_down(0x38)) {
         *heldKey = 0;
         return actionId;
     }
+    move = *heldKey & 0xff;
+    turn = *heldKey >> 8;
+    if (move != 0 && !arrow_is_down(move)) {
+        move = held_arrow_scan(0x48, 0x50);
+    }
+    if (turn != 0 && !arrow_is_down(turn)) {
+        turn = held_arrow_scan(0x4b, 0x4d);
+    }
+    *heldKey = (turn << 8) | move;
     actionId = wasd_to_arrow(actionId);
     if (is_arrow_key(actionId) && arrow_is_down(actionId)) {
-        *heldKey = actionId;
-        *nextRepeat = g_timer_ticks + arrow_repeat_ticks(actionId);
+        if (is_move_key(actionId)) {
+            move = actionId;
+        } else {
+            turn = actionId;
+            if (move != 0) {
+                *heldKey = (turn << 8) | move;
+                return 0;
+            }
+        }
+    } else if (actionId == 0 && *heldKey != 0 && g_timer_ticks >= *nextRepeat) {
+        actionId = (move != 0) ? move : turn;
+    } else {
         return actionId;
     }
-    if (*heldKey != 0 && !arrow_is_down(*heldKey)) {
-        *heldKey = held_arrow_scan();
-        *nextRepeat = g_timer_ticks + arrow_repeat_ticks(*heldKey);
-    }
-    if (actionId == 0 && *heldKey != 0 && g_timer_ticks >= *nextRepeat) {
-        *nextRepeat = g_timer_ticks + arrow_repeat_ticks(*heldKey);
-        return *heldKey;
+    *heldKey = (turn << 8) | move;
+    *nextRepeat = g_timer_ticks + arrow_repeat_ticks(actionId);
+    if (is_move_key(actionId) && turn != 0) {
+        g_nWorldComboTurn = (turn == 0x4b) ? 2 : 3;
     }
     return actionId;
 }
