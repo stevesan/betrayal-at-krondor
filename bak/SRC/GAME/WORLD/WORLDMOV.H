@@ -3,6 +3,12 @@
 
 #include "structs.h"
 
+#define WALK_REPEAT_TICKS 10
+#define TURN_REPEAT_TICKS 8
+#define STEP_ANIM_TICKS (WALK_REPEAT_TICKS - 1)
+#define TURN_ANIM_TICKS (TURN_REPEAT_TICKS - 1)
+#define STEP_ANIM_MAX_DIST 64000L
+
 extern unsigned short g_bWorldCrossing;
 extern unsigned short g_nWorldCrossingKind;
 extern unsigned long g_dwWorldCrossingCoord;
@@ -15,6 +21,7 @@ extern void worldmove_combat_zone_snap_pos(void);
 extern void worldmove_rgn_chap_trans_apply(void);
 extern int worldmove_party_attempt_move(int mode);
 extern void worldmove_apply_turn_step(short direction);
+extern void worldmove_turn_step_smooth(short direction);
 extern void worldmove_animate_hdg_tgt(int hdg_step, int hdg_target);
 extern void worldmove_plr_hdg_align_grid(void);
 extern void worldmove_camera_crossing_apply(void);

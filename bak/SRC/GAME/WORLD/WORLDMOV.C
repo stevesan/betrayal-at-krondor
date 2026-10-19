@@ -19,6 +19,8 @@
 #include "SRC/R3D/SCENE/CZONE.H"
 #include "SRC/GAME/ENC/HOTSPOT.H"
 #include "SRC/GAME/ENC/RGNENC.H"
+#include "SRC/GAME/WORLD/WORLDLP.H"
+#include "SRC/SYS/SYSLOWIO.H"
 
 unsigned short g_bWorldCrossing = 0x0000;
 unsigned short g_nWorldCrossingKind = 0x0000;
@@ -84,12 +86,66 @@ void worldmove_rgn_chap_trans_apply(void) {
     }
 }
 
+static long lerp_long(long from, long to, unsigned int num, unsigned int den) {
+    return from + (to - from) * (long)num / (long)den;
+}
+
+static long abs_long(long v) {
+    return (v < 0) ? -v : v;
+}
+
+static void render_anim_frame(unsigned long now) {
+    g_graphics_context.wGfxBlitDstPage = g_graphics_context.wGfxBlitSrcPage =
+        g_graphics_context.wVgaPage2Base;
+    world_render_scene_dispatch(0);
+    uiwidget_compass_draw();
+    screen_frame_present();
+    while (*(volatile unsigned long *)&g_timer_ticks == now) {
+    }
+}
+
+static int animate_step(WorldPos *from, WorldPos *to) {
+    WorldPos *pos;
+    unsigned long start;
+    unsigned long now;
+    unsigned int frame;
+
+    pos = &g_world_camera->base.pos;
+    if (pos->xy.nWorld_x != to->xy.nWorld_x || pos->xy.nWorld_y != to->xy.nWorld_y ||
+        pos->nWorld_z != to->nWorld_z) {
+        return 0;
+    }
+    if (g_nSceneReloadPending != 0 || g_gameState.abTeleportRecord[0] != '\0') {
+        return 0;
+    }
+    if (abs_long(to->xy.nWorld_x - from->xy.nWorld_x) +
+            abs_long(to->xy.nWorld_y - from->xy.nWorld_y) >
+        STEP_ANIM_MAX_DIST) {
+        return 0;
+    }
+    start = g_timer_ticks;
+    for (;;) {
+        now = g_timer_ticks;
+        frame = (unsigned int)(now - start) + 1;
+        if (frame >= STEP_ANIM_TICKS) {
+            break;
+        }
+        pos->xy.nWorld_x = lerp_long(from->xy.nWorld_x, to->xy.nWorld_x, frame, STEP_ANIM_TICKS);
+        pos->xy.nWorld_y = lerp_long(from->xy.nWorld_y, to->xy.nWorld_y, frame, STEP_ANIM_TICKS);
+        pos->nWorld_z = lerp_long(from->nWorld_z, to->nWorld_z, frame, STEP_ANIM_TICKS);
+        render_anim_frame(now);
+    }
+    *pos = *to;
+    return 1;
+}
+
 int far worldmove_party_attempt_move(int mode) {
     int out_target;
     unsigned short saved_crossing_kind;
     unsigned long saved_crossing_coord;
     int out_dir;
     WorldPos pos_save;
+    WorldPos pos_new;
     short step;
     int result;
 
@@ -124,11 +180,14 @@ L_moved:
         g_world_camera->base.pos.nWorld_z += g_lZoneDefaultZ;
     }
     czone_resync_on_world_move();
+    pos_new = g_world_camera->base.pos;
     if (hotspotevt_activate_at_player() != 0) {
+        if (!animate_step(&pos_save, &pos_new)) {
+            g_nWorldRenderJitter = RND2(0x10);
+        }
         if ((out_dir == 2) || (out_dir == 3)) {
             worldmove_animate_hdg_tgt(out_dir, out_target);
         }
-        g_nWorldRenderJitter = RND2(0x10);
         worldmove_step_tick_advance();
         return 1;
     }
@@ -169,6 +228,33 @@ L_fail:
 void worldmove_apply_turn_step(short direction) {
     worldmove_heading_step(&g_world_camera->base.orientation.yaw, g_nWorldGridStride, direction);
     g_nWorldRenderJitter = RND2(0x10);
+}
+
+void far worldmove_turn_step_smooth(short direction) {
+    short *yaw;
+    short from;
+    short to;
+    long delta;
+    unsigned long start;
+    unsigned long now;
+    unsigned int frame;
+
+    yaw = &g_world_camera->base.orientation.yaw;
+    from = *yaw;
+    worldmove_heading_step(yaw, g_nWorldGridStride, direction);
+    to = *yaw;
+    delta = (long)(short)(to - from);
+    start = g_timer_ticks;
+    for (;;) {
+        now = g_timer_ticks;
+        frame = (unsigned int)(now - start) + 1;
+        if (frame >= TURN_ANIM_TICKS) {
+            break;
+        }
+        *yaw = (short)(from + delta * (long)frame / (long)TURN_ANIM_TICKS);
+        render_anim_frame(now);
+    }
+    *yaw = to;
 }
 
 void worldmove_animate_hdg_tgt(int hdg_step, int hdg_target) {

@@ -312,7 +312,7 @@ void far map_main_loop(void) {
                 if (refusal_mode != 0) {
                     dialog_play_record(0xe1, 1);
                 } else {
-                    worldmove_apply_turn_step(2);
+                    worldmove_turn_step_smooth(2);
                     render_dirty = 1;
                 }
                 break;
@@ -320,7 +320,7 @@ void far map_main_loop(void) {
                 if (refusal_mode != 0) {
                     dialog_play_record(0xe2, 1);
                 } else {
-                    worldmove_apply_turn_step(3);
+                    worldmove_turn_step_smooth(3);
                     render_dirty = 1;
                 }
                 break;

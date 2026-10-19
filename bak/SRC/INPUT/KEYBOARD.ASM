@@ -463,9 +463,17 @@ L_isr_have_ascii:
 	cmp	ah,4dh
 	jz	L_isr_drop_repeat
 	cmp	ah,50h
+	jz	L_isr_drop_repeat
+	cmp	ah,11h				; W
+	jz	L_isr_drop_repeat
+	cmp	ah,1eh				; A
+	jz	L_isr_drop_repeat
+	cmp	ah,1fh				; S
+	jz	L_isr_drop_repeat
+	cmp	ah,20h				; D
 	jnz	L_isr_not_repeat
 L_isr_drop_repeat:
-	jmp	L_isr_eoi			; arrows: the world loop repeats held keys itself
+	jmp	L_isr_eoi			; arrows/WASD: the world loop repeats held keys itself
 L_isr_not_repeat:
 	mov	[_g_wIsrLastKeyEventDead],ax
 	mov	cx,word ptr es:[1ah]		; BDA kbd buffer head

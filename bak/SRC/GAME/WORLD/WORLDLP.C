@@ -38,9 +38,6 @@
 #include "SRC/SYS/CFGPARSE.H"
 #include "SRC/SYS/SYSLOWIO.H"
 
-#define WALK_REPEAT_TICKS 10
-#define TURN_REPEAT_TICKS 8
-
 MenuPage *g_pReqMainPage = {0};
 short g_nSceneReloadPending = 0;
 short g_nHotspotActivateRequest = 0;
@@ -53,14 +50,44 @@ static unsigned int arrow_repeat_ticks(unsigned int key) {
     return (key == 0x48 || key == 0x50) ? WALK_REPEAT_TICKS : TURN_REPEAT_TICKS;
 }
 
-static unsigned int held_arrow_scan(void) {
-    if (key_is_down(0x48))
+static unsigned int wasd_to_arrow(unsigned int key) {
+    switch (key) {
+    case 0x11:
         return 0x48;
-    if (key_is_down(0x50))
+    case 0x1f:
         return 0x50;
-    if (key_is_down(0x4b))
+    case 0x1e:
         return 0x4b;
-    if (key_is_down(0x4d))
+    case 0x20:
+        return 0x4d;
+    default:
+        return key;
+    }
+}
+
+static int arrow_is_down(unsigned int arrow) {
+    switch (arrow) {
+    case 0x48:
+        return key_is_down(0x48) || key_is_down(0x11);
+    case 0x50:
+        return key_is_down(0x50) || key_is_down(0x1f);
+    case 0x4b:
+        return key_is_down(0x4b) || key_is_down(0x1e);
+    case 0x4d:
+        return key_is_down(0x4d) || key_is_down(0x20);
+    default:
+        return 0;
+    }
+}
+
+static unsigned int held_arrow_scan(void) {
+    if (arrow_is_down(0x48))
+        return 0x48;
+    if (arrow_is_down(0x50))
+        return 0x50;
+    if (arrow_is_down(0x4b))
+        return 0x4b;
+    if (arrow_is_down(0x4d))
         return 0x4d;
     return 0;
 }
@@ -71,12 +98,13 @@ unsigned int far worldloop_held_arrow_repeat(unsigned int actionId, unsigned int
         *heldKey = 0;
         return actionId;
     }
-    if (is_arrow_key(actionId) && key_is_down(actionId)) {
+    actionId = wasd_to_arrow(actionId);
+    if (is_arrow_key(actionId) && arrow_is_down(actionId)) {
         *heldKey = actionId;
         *nextRepeat = g_timer_ticks + arrow_repeat_ticks(actionId);
         return actionId;
     }
-    if (*heldKey != 0 && !key_is_down(*heldKey)) {
+    if (*heldKey != 0 && !arrow_is_down(*heldKey)) {
         *heldKey = held_arrow_scan();
         *nextRepeat = g_timer_ticks + arrow_repeat_ticks(*heldKey);
     }
@@ -334,14 +362,14 @@ short far world3d_main_loop(void) {
                     dialog_play_record(0xe1, 1);
                     goto post_dispatch;
                 }
-                worldmove_apply_turn_step(2);
+                worldmove_turn_step_smooth(2);
                 goto after_move;
             case 0x4d:
                 if (refusal_mode != 0) {
                     dialog_play_record(0xe2, 1);
                     goto post_dispatch;
                 }
-                worldmove_apply_turn_step(3);
+                worldmove_turn_step_smooth(3);
                 goto after_move;
             case 0x13:
                 if (refusal_mode != 0) {
