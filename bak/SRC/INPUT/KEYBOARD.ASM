@@ -454,6 +454,19 @@ L_isr_chk_shift:
 	mov	al,byte ptr [di+_g_bUnused2cfa+0a1h]	; (was 0x2d9b) shifted-ascii table
 L_isr_have_ascii:
 	mov	ah,cl				; AH = scancode, AL = ascii
+	test	dl,1				; key already down -> typematic repeat
+	jz	L_isr_not_repeat
+	cmp	ah,48h
+	jz	L_isr_drop_repeat
+	cmp	ah,4bh
+	jz	L_isr_drop_repeat
+	cmp	ah,4dh
+	jz	L_isr_drop_repeat
+	cmp	ah,50h
+	jnz	L_isr_not_repeat
+L_isr_drop_repeat:
+	jmp	L_isr_eoi			; arrows: the world loop repeats held keys itself
+L_isr_not_repeat:
 	mov	[_g_wIsrLastKeyEventDead],ax
 	mov	cx,word ptr es:[1ah]		; BDA kbd buffer head
 	mov	di,word ptr es:[1ch]		; BDA kbd buffer tail

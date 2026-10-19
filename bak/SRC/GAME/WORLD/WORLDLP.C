@@ -36,10 +36,56 @@
 #include "SRC/INPUT/WCURSOR.H"
 #include "SRC/GAME/WORLD/WORLDCRS.H"
 #include "SRC/SYS/CFGPARSE.H"
+#include "SRC/SYS/SYSLOWIO.H"
+
+#define WALK_REPEAT_TICKS 10
+#define TURN_REPEAT_TICKS 8
 
 MenuPage *g_pReqMainPage = {0};
 short g_nSceneReloadPending = 0;
 short g_nHotspotActivateRequest = 0;
+
+static int is_arrow_key(unsigned int key) {
+    return key == 0x48 || key == 0x50 || key == 0x4b || key == 0x4d;
+}
+
+static unsigned int arrow_repeat_ticks(unsigned int key) {
+    return (key == 0x48 || key == 0x50) ? WALK_REPEAT_TICKS : TURN_REPEAT_TICKS;
+}
+
+static unsigned int held_arrow_scan(void) {
+    if (key_is_down(0x48))
+        return 0x48;
+    if (key_is_down(0x50))
+        return 0x50;
+    if (key_is_down(0x4b))
+        return 0x4b;
+    if (key_is_down(0x4d))
+        return 0x4d;
+    return 0;
+}
+
+unsigned int far worldloop_held_arrow_repeat(unsigned int actionId, unsigned int *heldKey,
+                                             unsigned long *nextRepeat) {
+    if (key_is_down(0x38)) {
+        *heldKey = 0;
+        return actionId;
+    }
+    if (is_arrow_key(actionId) && key_is_down(actionId)) {
+        *heldKey = actionId;
+        *nextRepeat = g_timer_ticks + arrow_repeat_ticks(actionId);
+        return actionId;
+    }
+    if (*heldKey != 0 && !key_is_down(*heldKey)) {
+        *heldKey = held_arrow_scan();
+        *nextRepeat = g_timer_ticks + arrow_repeat_ticks(*heldKey);
+    }
+    if (actionId == 0 && *heldKey != 0 && g_timer_ticks >= *nextRepeat) {
+        *nextRepeat = g_timer_ticks + arrow_repeat_ticks(*heldKey);
+        return *heldKey;
+    }
+    return actionId;
+}
 
 void far worldloop_req_main_screen_load(void) {
     g_pReqMainPage = menupage_load("req_main.dat");
@@ -69,6 +115,8 @@ short far world3d_main_loop(void) {
     MenuEntry *prev_focused_entry;
     unsigned int action_id;
     unsigned char far *saved_pal;
+    unsigned int held_key;
+    unsigned long next_repeat;
     /* This pair must stay `register`: render_dirty is allocated to SI,
        hotspot_active to DI. */
     register int render_dirty;   /* party-dirty / render-scene flag */
@@ -82,6 +130,8 @@ short far world3d_main_loop(void) {
     redraw_caption = 0;
     pending_events = 0;
     key_repeat_armed = 0;
+    held_key = 0;
+    next_repeat = 0;
     focused_entry = (MenuEntry *)0;
     g_nHotspotActivateRequest = 0;
     g_bZoneEntryInProgress = 0;
@@ -204,6 +254,7 @@ short far world3d_main_loop(void) {
             }
             g_dwDialogInputCooldown = 0;
             action_id = menupage_run(g_pReqMainPage, &redraw_menu);
+            action_id = worldloop_held_arrow_repeat(action_id, &held_key, &next_repeat);
             prev_focused_entry = focused_entry;
             focused_entry = menupage_focused_entry();
             if (prev_focused_entry != focused_entry && key_repeat_armed != 0) {

@@ -117,6 +117,7 @@ int far worldmove_party_attempt_move(int mode) {
     if (result == 0)
         goto L_fail;
 
+L_moved:
     if (g_full_redraw_needed != 0) {
         g_world_camera->base.pos.nWorld_z = pos_save.nWorld_z;
     } else {
@@ -144,6 +145,18 @@ L_fail:
         if (worldmove_sweep_alt_headings(&g_world_camera->base.pos,
                                          g_world_camera->base.orientation.yaw, (long)step, mode,
                                          &out_dir, &out_target) != 0) {
+            if (g_gameState.nWorldStepPending == 0) {
+                g_bWorldCrossing = 1;
+                result = worldmove_step_free_move(&g_world_camera->base.pos, out_target,
+                                                  (long)step, mode);
+                g_bWorldCrossing = 0;
+                if (result != 0) {
+                    out_dir = 0;
+                    goto L_moved;
+                }
+                audio_play(0x31);
+                return 0;
+            }
             worldmove_apply_turn_step(out_dir);
             worldmove_animate_hdg_tgt(out_dir, out_target);
             return 1;

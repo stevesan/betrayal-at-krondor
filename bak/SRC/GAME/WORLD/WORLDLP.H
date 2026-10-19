@@ -16,5 +16,7 @@ extern void worldloop_party_move_done_clr(void);
 extern void worldloop_step_or_final_movement(void);
 extern void worldloop_set_flag_8b_preds(void);
 extern void worldloop_pty_stat7_flag_cd(void);
+extern unsigned int worldloop_held_arrow_repeat(unsigned int actionId, unsigned int *heldKey,
+                                                unsigned long *nextRepeat);
 
 #endif

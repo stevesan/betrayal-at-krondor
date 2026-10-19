@@ -103,8 +103,12 @@ void far map_main_loop(void) {
     unsigned char far *saved_pal;
     int render_dirty;
     unsigned int refusal_mode;
+    unsigned int held_key;
+    unsigned long next_repeat;
 
     keep_running = 1;
+    held_key = 0;
+    next_repeat = 0;
     moved = 0;
     redraw_menu = 0;
     render_dirty = 0;
@@ -229,6 +233,7 @@ void far map_main_loop(void) {
             }
             g_dwDialogInputCooldown = 0;
             action_id = menupage_run(g_pReqMapPage, &redraw_menu);
+            action_id = worldloop_held_arrow_repeat(action_id, &held_key, &next_repeat);
             prev_focused_entry = focused_entry;
             focused_entry = menupage_focused_entry();
             if ((prev_focused_entry != focused_entry) && key_repeat_armed) {
