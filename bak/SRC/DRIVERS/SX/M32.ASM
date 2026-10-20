@@ -1451,7 +1451,7 @@ m32_mpu_delay   PROC    NEAR
                 PUSH    DX
                 PUSH    DI
                 MOV     DX, 0331H               ; status port (harmless read)
-                MOV     DI, 7500H               ; ~30000 iterations
+                MOV     DI, 0400H               ; ~1000 iterations (mod: was 7500H; DOSBox needs no MT-32 settle time)
 mdly_loop:      IN      AL, DX
                 DEC     DI
                 CMP     DI, 0
