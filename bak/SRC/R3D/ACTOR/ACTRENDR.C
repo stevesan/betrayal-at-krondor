@@ -21,7 +21,10 @@ char actorrender_frustum_cull(void) {
     } out;
     PerspDiv2Args args;
 
-    if ((long)g_abR3dState.nActorFarClipThreshold >
+    /* mod: the threshold is the focal length (1 << zoom), doubled by the SVGA view's zoom;
+     * testing against all of it dropped objects beside the camera that were still on screen.
+     * Polygons still clip at the full threshold; billboards cull themselves in WORLDRND.C. */
+    if ((long)(g_abR3dState.nActorFarClipThreshold >> 2) >
         g_abR3dState.nActorCamZ + g_abR3dState.nMeshBoundHalfExtent)
         return 1;
 

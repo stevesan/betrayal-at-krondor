@@ -131,6 +131,11 @@ int *worldrender_mesh_vertex_to_world(unsigned char idx, int *out_vec3) {
     return out_vec3;
 }
 
+/* mod: was 0x5dc -- trees and bodies vanished while still well in front of the camera */
+#define SPRITE_NEAR_CULL_DIST 0xc0
+/* mod: projected anchor offsets beyond this are far off screen (sprite half-size caps at 256) */
+#define SPRITE_SCR_LIMIT 4000L
+
 /* entry points at a SpriteBillboard (structs.h) — the tag-2 poly-list payload.
  * Fields are read by raw offset here: the +2 word is deliberately punned to pull
  * both yAdjust (low byte) and xOffset (high byte), so the accessors stay raw. */
@@ -144,6 +149,8 @@ void worldrender_sprite_billboard(unsigned char far *entry) {
     int nScrX;
     int nScrY;
     unsigned long lDist;
+    long lScrX;
+    long lScrY;
     int vec3[3];
 
     spriteBank = g_shapeTables[g_nCurModelIdx].spriteBank;
@@ -159,7 +166,9 @@ void worldrender_sprite_billboard(unsigned char far *entry) {
     }
 
     worldrender_mesh_vertex_to_world(entry[5], vec3);
-    if (vec3[1] < g_nActorFarClipThreshold) {
+    /* mod: g_nActorFarClipThreshold is the focal length (1 << zoom), which doubled with the
+     * SVGA view's zoom; billboards are dropped whole, so let them come in to a quarter of it */
+    if (vec3[1] < (g_nActorFarClipThreshold >> 2)) {
         return;
     }
 
@@ -184,8 +193,15 @@ void worldrender_sprite_billboard(unsigned char far *entry) {
         g_nBillboardW = (short)((long)g_nBillboardW * (long)scaleQ10 >> 10);
         g_nBillboardH = (short)((long)g_nBillboardH * (long)scaleQ10 >> 10);
 
-        nScrX = g_nViewportCenterX + (int)(((long)vec3[0] << g_nScreenShift) / (long)vec3[1]);
-        nScrY = g_nViewportCenterY - (int)(((long)vec3[2] << g_nScreenShift) / (long)vec3[1]);
+        lScrX = ((long)vec3[0] << g_nScreenShift) / (long)vec3[1];
+        lScrY = ((long)vec3[2] << g_nScreenShift) / (long)vec3[1];
+        /* mod: with the closer cull these can exceed 16 bits and wrap back on screen */
+        if (lScrX < -SPRITE_SCR_LIMIT || lScrX > SPRITE_SCR_LIMIT || lScrY < -SPRITE_SCR_LIMIT ||
+            lScrY > SPRITE_SCR_LIMIT) {
+            return;
+        }
+        nScrX = g_nViewportCenterX + (int)lScrX;
+        nScrY = g_nViewportCenterY - (int)lScrY;
 
         nOffX = (unsigned char)((*(int far *)(entry + 2) >> 8) & 0xff);
         nAdjY = (unsigned char)(entry[2] & 0xff);
@@ -198,7 +214,7 @@ void worldrender_sprite_billboard(unsigned char far *entry) {
 
         g_graphics_context.bClip_enabled = 1;
         lDist = distdir_octagonal_distance_dxdy(g_abR3dState.nActorRelX, g_abR3dState.nActorRelY);
-        if (lDist < 0x5dc) {
+        if (lDist < SPRITE_NEAR_CULL_DIST) {
             return;
         }
 
