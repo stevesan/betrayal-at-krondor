@@ -38,6 +38,7 @@
 #include "SRC/R3D/VIS/PROXSCAN.H"
 #include "SRC/R3D/SCENE/WORLDFRM.H"
 #include "SRC/R3D/SKY/SKYREND.H"
+#include "SRC/GFX/DRIVER/VIDDRV.H"
 #include "SRC/COMBAT/ACTOR/CACTOR.H"
 #include "SRC/COMBAT/ARENA/COMBAT.H"
 #include "SRC/GAME/ENC/RGNENC.H"
@@ -59,7 +60,7 @@ unsigned char g_abActorAnimTemplateDefault[10] = {0xff, 0xff, 0xff, 0xff, 0xff,
 unsigned char g_abActorAnimTemplateRanged[10] = {0x0c, 0xff, 0xff, 0xff, 0xff,
                                                  0xff, 0xff, 0xff, 0xff, 0xff};
 
-void world_render_scene_dispatch(int animate) {
+static void world_render_scene_body(int animate) {
 #ifdef V102CD
     short saved_heading;
     if (animate != 0) {
@@ -142,6 +143,19 @@ void world_render_scene_dispatch(int animate) {
     }
     g_polyRasterState.nRemapTableOff = 0;
 #endif
+}
+
+void world_render_scene_dispatch(int animate) {
+    int wide;
+
+    wide = g_bSvgaDriver && g_world_widget->viewport.width > SCREEN_W_VGA;
+    if (wide) {
+        svga_set_origin(0, 0);
+    }
+    world_render_scene_body(animate);
+    if (wide) {
+        svga_set_origin(g_svgaOriginX, g_svgaOriginY);
+    }
 }
 
 void far world_render_frame(int animate) {

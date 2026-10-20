@@ -46,6 +46,8 @@
 _g_bGfx_fill_color	equ	_g_graphics_context + 00dh	; gfxctx +0x0d
 _g_wGfxBlitDstPage	equ	_g_graphics_context + 018h	; gfxctx +0x18
 _g_pRow_offset_lut	equ	_g_graphics_context + 6f2h	; gfxctx +0x6f2 (dw[200])
+	extrn	_g_bSvgaDriver:word
+	extrn	_g_renderer_vtable:byte
 
 ; --- segment declarations ----------------------------------------------------
 DGROUP	group	_DATA,_BSS
@@ -263,6 +265,11 @@ _vgablit_planar_runs:
 	push	di			; 002d: 57
 	push	ds			; 002e: 1e
 	mov	bp,si			; 002f: 8bee
+	cmp	word ptr ss:[_g_bSvgaDriver],0
+	je	short L_runs_vga
+	mov	byte ptr cs:[_sv_untiled],0
+	jmp	L_svga_runs
+L_runs_vga:
 	mov	ax,word ptr [_g_wGfxBlitDstPage]	; 0031: a12820
 	mov	cs:[_dst_seg],ax	; 0034: 2ea31c00
 	mov	bx,es:[bp+0]		; 0038: 268b5e00
@@ -412,6 +419,11 @@ _vgablit_planar_runs_untiled:
 	push	di			; 0166: 57
 	push	ds			; 0167: 1e
 	mov	bp,si			; 0168: 8bee
+	cmp	word ptr ss:[_g_bSvgaDriver],0
+	je	short L_untiled_vga
+	mov	byte ptr cs:[_sv_untiled],1
+	jmp	L_svga_runs
+L_untiled_vga:
 	mov	ax,word ptr [_g_wGfxBlitDstPage]	; 016a: a12820
 	mov	cs:[_dst_seg],ax	; 016d: 2ea31c00
 	mov	bx,es:[bp+0]		; 0171: 268b5e00
@@ -508,6 +520,120 @@ L_233:
 	pop	di			; 023b: 5f
 	pop	bp			; 023c: 5d
 	retf				; 023d: cb
+
+; ── SVGA (chunky, linear framebuffer) run copy ───────────────────────────────
+; Same descriptor and tiling rules as the planar versions. Source atlas pixel
+; for planar offset o and screen x: row o/80, column (o mod 80)*4 + x
+; (wrapping at 320). Flat page bases come from renderer slot 43.
+_sv_src		dd	0
+_sv_dst		dd	0
+_sv_y		dw	0
+_sv_untiled	db	0
+		db	0
+
+L_svga_runs:
+	push	fs
+	push	0
+	pop	fs
+	push	118h
+	push	0a0h
+	push	0
+	push	0
+	push	word ptr cs:[_src_seg]
+	call	dword ptr ss:[_g_renderer_vtable + 0b8h]
+	add	sp,0ah
+	mov	word ptr cs:[_sv_src],ax
+	mov	word ptr cs:[_sv_src+2],dx
+	push	0
+	push	0
+	push	word ptr ss:[_g_wGfxBlitDstPage]
+	call	dword ptr ss:[_g_renderer_vtable + 0ach]
+	add	sp,6
+	mov	word ptr cs:[_sv_dst],ax
+	mov	word ptr cs:[_sv_dst+2],dx
+	mov	cx,es:[bp+0]
+	mov	cs:[_sv_y],cx
+	cmp	byte ptr cs:[_sv_untiled],0
+	jne	short L_sv_si_base
+	mov	ax,cs:[_row_count]
+	mov	cs:[_outer_cnt],ax
+	cmp	ax,0
+	jnz	short L_sv_si_base
+	sub	cx,cs:[_row_sub]
+	mov	ax,cs:[_si_stride]
+	mul	cx
+	add	ax,cs:[_si_base]
+	mov	si,ax
+	jmp	short L_sv_si_done
+L_sv_si_base:
+	mov	si,cs:[_si_base]
+L_sv_si_done:
+	mov	ax,es:[bp+2]
+	mov	cs:[_inner_cnt],ax
+	add	bp,4
+	or	ax,ax
+	jz	L_sv_done
+L_sv_row:
+	mov	cx,es:[bp+2]
+	sub	cx,es:[bp+0]
+	jl	L_sv_row_next
+	inc	cx
+	movzx	edi,word ptr cs:[_sv_y]
+	imul	edi,edi,640
+	add	edi,cs:[_sv_dst]
+	movsx	eax,word ptr es:[bp+0]
+	add	edi,eax
+	mov	ax,si
+	xor	dx,dx
+	mov	bx,80
+	div	bx
+	shl	dx,2
+	add	dx,es:[bp+0]
+	movzx	ebx,ax
+L_sv_norm:
+	cmp	dx,320
+	jl	short L_sv_normed
+	sub	dx,320
+	inc	ebx
+	jmp	short L_sv_norm
+L_sv_normed:
+	imul	ebx,ebx,640
+	add	ebx,cs:[_sv_src]
+	movzx	edx,dx
+L_sv_px:
+	mov	al,byte ptr fs:[ebx+edx]
+	mov	byte ptr fs:[edi],al
+	inc	edi
+	inc	dx
+	cmp	dx,320
+	jl	short L_sv_px_next
+	xor	dx,dx
+	add	ebx,640
+L_sv_px_next:
+	loop	L_sv_px
+L_sv_row_next:
+	add	bp,4
+	inc	word ptr cs:[_sv_y]
+	add	si,cs:[_si_stride]
+	cmp	byte ptr cs:[_sv_untiled],0
+	je	short L_sv_tiled
+	and	si,cs:[_si_mask]
+	jmp	short L_sv_count
+L_sv_tiled:
+	dec	word ptr cs:[_outer_cnt]
+	jnz	short L_sv_count
+	mov	si,cs:[_si_base]
+	mov	ax,cs:[_row_count]
+	mov	cs:[_outer_cnt],ax
+L_sv_count:
+	dec	word ptr cs:[_inner_cnt]
+	jnz	L_sv_row
+L_sv_done:
+	pop	fs
+	pop	ds
+	pop	di
+	pop	bp
+	retf
 
 S14C1_TEXT	ends
 	end

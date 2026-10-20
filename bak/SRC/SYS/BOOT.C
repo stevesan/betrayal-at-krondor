@@ -23,6 +23,7 @@
 #include "SRC/SYS/DOSMEM.H"
 #include "SRC/INPUT/INT00.H"
 #include "SRC/GFX/DRIVER/VIDINIT.H"
+#include "SRC/GFX/DRIVER/VIDDRV.H"
 #include "SRC/SYS/HWSHUT.H"
 #include "SRC/GFX/DRIVER/VIDDET.H"
 #include "SRC/STREAM/RESLOAD/FONTLOAD.H"
@@ -154,6 +155,9 @@ void boot_video_init_for_mode(int mode) {
 
     mouse_set_cursor_clip_rect(0, 0, mode ? SCREEN_W_NEW : SCREEN_W_VGA,
                                mode ? SCREEN_H_NEW : SCREEN_H_VGA);
+    if (g_bSvgaDriver) {
+        mouse_set_cursor_clip_rect(0, 0, 640, 480);
+    }
     return;
 }
 
@@ -201,6 +205,9 @@ void far boot_engine_hardware_init(void) {
     screen_cursor_load_pack(0);
     keyboard_install(0);
     mouse_install();
+    if (g_bSvgaDriver) {
+        mouse_set_cursor_clip_rect(0, 0, 640, 480);
+    }
     install_int00_handler();
     timer_install(0xd);
     g_pCodecScratchFp = g_pMainScratchBuf = alloc_far(0x3c8c, 0);

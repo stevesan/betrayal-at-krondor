@@ -9,6 +9,7 @@
 #include "SRC/GAME/ENC/RGNENC.H"
 #include "SRC/R3D/ACTOR/ACTOROVL.H"
 #include "structs.h"
+#include "SRC/GFX/DRIVER/VIDDRV.H"
 #include "SRC/INPUT/WCURSOR.H"
 #include "SRC/IO/RESOURCE.H"
 #include "SRC/SYS/MEM.H"
@@ -68,6 +69,10 @@ int far wcursor_dispatch_action(void) {
 
     cursor_x = screen_cursor_get_x();
     cursor_y = screen_cursor_get_y();
+    if (g_bSvgaDriver && g_world_widget->viewport.width > SCREEN_W_VGA) {
+        cursor_x += g_svgaOriginX;
+        cursor_y += g_svgaOriginY;
+    }
     g_graphics_context.wGfxBlitSrcPage = g_graphics_context.wGfxBlitDstPage =
         g_graphics_context.wVgaPage2Base;
     world_render_tick_objects();

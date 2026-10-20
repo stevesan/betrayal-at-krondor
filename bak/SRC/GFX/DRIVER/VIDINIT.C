@@ -115,7 +115,11 @@ vtable_done:
         _AX -= 1;
         _freemem(_BX, _AX);
     }
-    _AX = g_wScreen_height;
+    if (g_bSvgaDriver) {
+        _AX = 480;
+    } else {
+        _AX = g_wScreen_height;
+    }
     _AX <<= 1;
     _AX <<= 1;
     _AX += 0x20;

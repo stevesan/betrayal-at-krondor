@@ -28,6 +28,7 @@
 #include "SRC/INPUT/WCURSOR.H"
 #include "SRC/R3D/ACTOR/ACTOROVL.H"
 #include "gfx169d.h"
+#include "SRC/GFX/DRIVER/VIDDRV.H"
 
 short g_game_mode;
 WorldEntity *g_world_camera;
@@ -53,6 +54,13 @@ void far zone_subsystem_init(void) {
     res_fread(&g_world_widget->viewport.width, 2, 1, file);
     res_fread(&g_world_widget->viewport.height, 2, 1, file);
     res_fclose(file);
+    if (g_bSvgaDriver) {
+        g_world_widget->viewport.x = 0;
+        g_world_widget->viewport.y = 0;
+        g_world_widget->viewport.width = SVGA_VIEW_W;
+        g_world_widget->viewport.height = SVGA_VIEW_H;
+        g_world_widget->zoom = SVGA_VIEW_ZOOM;
+    }
     worldmove_dat_load();
     proxscan_filter_table_load();
     rgnenc_chap_shp_init();

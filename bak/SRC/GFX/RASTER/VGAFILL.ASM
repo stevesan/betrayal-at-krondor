@@ -84,6 +84,8 @@
 
 ; --- DGROUP externals -------------------------------------------------------
 	extrn	_g_graphics_context:byte	; DGROUP+0x2010; +0x18 = wGfxBlitDstPage
+	extrn	_g_bSvgaDriver:word
+	extrn	_g_renderer_vtable:byte
 
 DGROUP	group	_DATA,_BSS
 _DATA	segment word public use16 'DATA'
@@ -170,6 +172,46 @@ _vgaplanar_clear_column_strip:
 	mov	bp,sp
 	push	si
 	push	di
+	cmp	word ptr ss:[_g_bSvgaDriver],0
+	je	L_cs_vga
+	mov	ax,word ptr [bp+6]
+	xor	dx,dx
+	mov	cx,50h
+	div	cx
+	mov	si,ax
+	xor	bx,bx
+L_cs_sv_row:
+	cmp	bx,word ptr [bp+8]
+	jge	L_cs_sv_done
+	mov	di,bx
+	cmp	di,21h
+	jbe	L_cs_sv_shade
+	mov	di,21h
+L_cs_sv_shade:
+	mov	al,byte ptr cs:[di+_shade_table]
+	xor	ah,ah
+	push	bx
+	push	ax
+	mov	ax,1
+	push	ax
+	mov	ax,word ptr ss:[_g_graphics_context+6]
+	sub	ax,word ptr ss:[_g_graphics_context+4]
+	inc	ax
+	push	ax
+	push	si
+	push	word ptr ss:[_g_graphics_context+4]
+	call	dword ptr ss:[_g_renderer_vtable+0b0h]
+	add	sp,0ah
+	pop	bx
+	dec	si
+	inc	bx
+	jmp	L_cs_sv_row
+L_cs_sv_done:
+	pop	di
+	pop	si
+	pop	bp
+	retf
+L_cs_vga:
 	mov	es,word ptr [_g_graphics_context+18h]	; ES = active blit page segment
 	cld					; STOSB/STOSW count upward (DI increases)
 
@@ -271,6 +313,23 @@ _vgaplanar_fill_band:
 	mov	bp,sp
 	push	si
 	push	di
+	cmp	word ptr ss:[_g_bSvgaDriver],0
+	je	L_fb_vga
+	push	word ptr [bp+0ah]
+	push	word ptr [bp+8]
+	mov	ax,word ptr ss:[_g_graphics_context+6]
+	sub	ax,word ptr ss:[_g_graphics_context+4]
+	inc	ax
+	push	ax
+	push	word ptr [bp+6]
+	push	word ptr ss:[_g_graphics_context+4]
+	call	dword ptr ss:[_g_renderer_vtable+0b0h]
+	add	sp,0ah
+	pop	di
+	pop	si
+	pop	bp
+	retf
+L_fb_vga:
 	mov	es,word ptr [_g_graphics_context+18h]	; ES = active blit page segment
 	cld					; STOSB/STOSW count upward (DI increases)
 

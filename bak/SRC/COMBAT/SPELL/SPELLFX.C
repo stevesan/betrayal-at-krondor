@@ -2,6 +2,7 @@
 #include "SRC/GEN/GFXCTX.H"
 #include "SRC/R3D/SCENE/ZONE.H"
 #include "structs.h"
+#include "SRC/GFX/DRIVER/VIDDRV.H"
 #include "SRC/COMBAT/SPELL/SPELLFX.H"
 #include "SRC/SYS/RAND.H"
 #include "SRC/AUDIO/ENGINE/AUDIO.H"
@@ -382,6 +383,14 @@ void spellfx_draw_events_caption(void) {
     char buf[10];
     int i;
     int n;
+
+    if (g_bSvgaDriver) {
+        for (i = 0; i < 9 && spellfx_event_mask_test_bit(i) == 0; i++) {
+        }
+        if (i == 9) {
+            return;
+        }
+    }
 
     g_graphics_context.bClip_enabled = 0;
     g_graphics_context.bText_style_flags = 1;

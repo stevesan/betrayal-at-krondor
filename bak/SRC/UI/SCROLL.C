@@ -3,6 +3,7 @@
 #include "SRC/UI/SCROLL.H"
 
 #include "SRC/GFX/RASTER/PRESENT.H"
+#include "SRC/GFX/DRIVER/VIDDRV.H"
 #include <conio.h>
 
 short g_nVgaScrollPageCount;
@@ -28,7 +29,7 @@ void far scrolltrans_scroll_fast(int direction, int speed, int distance) {
         scrolltrans_scroll(direction, speed, distance);
         return;
     }
-    if (direction < 0 || direction > 3 || speed < 1 || distance < 0 ||
+    if (direction < 0 || direction > 3 || speed < 1 || distance < 0 || g_bSvgaDriver ||
         (g_graphics_context.bVideoAdapter != '\x02' &&
          g_graphics_context.bVideoAdapter != '\x08')) {
         fallback = 1;
@@ -173,7 +174,7 @@ void far scrolltrans_scroll(int direction, int duration, int distance) {
     int fallback;
 
     fallback = 0;
-    if (direction < 0 || direction > 3 || duration < 1 || distance < 0 ||
+    if (direction < 0 || direction > 3 || duration < 1 || distance < 0 || g_bSvgaDriver ||
         (g_graphics_context.bVideoAdapter != '\x02' &&
          g_graphics_context.bVideoAdapter != '\x08')) {
         fallback = 1;

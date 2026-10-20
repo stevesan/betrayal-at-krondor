@@ -14,6 +14,7 @@
 #include "SRC/GFX/DRIVER/VTHUNKS.H"
 #include "SRC/SYS/DOSMEM.H"
 #include "SRC/GFX/DRIVER/VIDINIT.H"
+#include "SRC/GFX/DRIVER/VIDDRV.H"
 #include "SRC/STREAM/RESLOAD/IMGLOAD.H"
 #include "SRC/INPUT/MOUSE.H"
 #include "SRC/GFX/SPRITE/SPRTHNKS.H"
@@ -39,8 +40,15 @@ unsigned char far *g_pSavedCursorBuf1 = {0};
 unsigned char far *g_pSavedCursorBuf2 = {0};
 
 int screen_cursor_get_position(short *out_x, short *out_y) {
+    int ret;
+
     if (g_mouse_installed) {
-        return mouse_get_position((unsigned int *)out_x, (unsigned int *)out_y);
+        ret = mouse_get_position((unsigned int *)out_x, (unsigned int *)out_y);
+        if (g_bSvgaDriver) {
+            *out_x -= g_svgaOriginX;
+            *out_y -= g_svgaOriginY;
+        }
+        return ret;
     }
     *out_x = g_nCursorX;
     *out_y = g_nCursorY;
@@ -49,6 +57,9 @@ int screen_cursor_get_position(short *out_x, short *out_y) {
 
 int screen_cursor_set_position(int x, int y) {
     if (g_mouse_installed != '\0') {
+        if (g_bSvgaDriver) {
+            return mouse_set_position(x + g_svgaOriginX, y + g_svgaOriginY);
+        }
         return mouse_set_position(x, y);
     }
     if (x < 0) {
@@ -241,6 +252,8 @@ void screen_cur_refr_during_long_op(void) {
     short savedClipXmax;
     short savedClipYmax;
     short savedClipEnabled;
+    int savedOriginX;
+    int savedOriginY;
 
     screen_cursor_get_position(&g_cursor_prev_x[1].nX, &g_cursor_prev_x[1].nY);
 
@@ -269,6 +282,12 @@ void screen_cur_refr_during_long_op(void) {
     g_graphics_context.wGfxBlitSrcPage = g_graphics_context.wGfxBlitDstPage =
         g_graphics_context.wVgaFrontPageBase;
 
+    savedOriginX = g_svgaCurOriginX;
+    savedOriginY = g_svgaCurOriginY;
+    if (g_bSvgaDriver) {
+        svga_set_origin(g_svgaOriginX, g_svgaOriginY);
+    }
+
     if (g_cursor_prev_x[0].nX != -999) {
         screen_cursor_restore_background(&g_cursor_prev_x[0], pBgBuffer);
     }
@@ -284,6 +303,10 @@ void screen_cur_refr_during_long_op(void) {
     }
 
     g_graphics_context.wGfxBlitDstPage = g_graphics_context.wVgaPage2Base;
+
+    if (g_bSvgaDriver) {
+        svga_set_origin(savedOriginX, savedOriginY);
+    }
 
     g_graphics_context.bClip_enabled = (unsigned char)savedClipEnabled;
     g_graphics_context.clip.xmin = savedClipXmin;
@@ -320,6 +343,10 @@ void far screen_frame_present(void) {
 }
 
 void far screen_frame_sync_buffers_rect(int row_start, int row_count) {
+    if (g_bSvgaDriver) {
+        svga_copy_page(g_graphics_context.wVgaFrontPageBase, g_graphics_context.wVgaPage2Base);
+        goto restore_cursor;
+    }
     asm mov dx, 050h;
     asm mov ax, word ptr row_start;
     asm imul dx;
@@ -344,6 +371,7 @@ void far screen_frame_sync_buffers_rect(int row_start, int row_count) {
     asm mov ax, 04005h;
     asm out dx, ax;
 
+restore_cursor:
     if (g_cursor_prev_x[1].nX != -999) {
         if ((unsigned char huge *)g_pActiveCursorBuf == (unsigned char huge *)g_pCursorScratchBuf1)
             screen_cursor_restore_background(&g_cursor_prev_x[1], g_pCursorScratchBuf2);

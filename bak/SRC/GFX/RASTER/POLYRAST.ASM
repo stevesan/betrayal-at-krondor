@@ -69,6 +69,8 @@ wGfxBlitDstPage	db	?
 GfxContext	ends
 
 	extrn	_g_pMainScratchBuf:dword
+	extrn	_g_bSvgaDriver:word
+	extrn	_g_renderer_vtable:byte
 
 ; --- Polygon/scaled-sprite rasterizer shared state (DGROUP+0x28e) -------------
 ; PolyRasterState { int nRemapTableOff; PolyEdge edge[3]; }, PolyEdge { long acc;
@@ -394,6 +396,8 @@ L_x_clip_done:
 	; ---- Check step count > 0 before entering loop ----
 	cmp	word ptr cs:[_DAT_169d_0f5c],0h
 	jle	L_epilogue_ds
+	cmp	word ptr ss:[_g_bSvgaDriver],0
+	jne	L_svga_gouraud
 
 	; ---- Branch: clipped (Y) path vs unclipped path ----
 	test	byte ptr cs:[_DAT_169d_0f6e],0fh
@@ -825,6 +829,8 @@ L_after_clip:
 	jle	L_return
 	cmp	word ptr [bp + 10h],0
 	jle	L_return
+	cmp	word ptr ss:[_g_bSvgaDriver],0
+	jne	L_svga_blit
 
 ; compute screen byte offset
 	mov	bx,word ptr [bp + 0ah]		; y
@@ -1135,6 +1141,172 @@ L_remap_no_wrap:
 	dec	word ptr cs:[_smc_remap_w]
 	jnz	L_remap_col
 	jmp	L_return
+
+; ===========================================================================
+; SVGA (chunky, linear framebuffer) path: one column at a time, all modes.
+; The destination flat address comes from driver slot 43.
+; ===========================================================================
+_sv_toggle	db	0
+		db	0
+_sv_istep	dw	0
+
+L_svga_blit:
+	push	word ptr [bp + 0ah]
+	push	word ptr [bp + 8]
+	push	es
+	call	dword ptr ss:[_g_renderer_vtable + 0ach]
+	add	sp,6
+	mov	di,dx
+	shl	edi,16
+	mov	di,ax
+	push	fs
+	push	0
+	pop	fs
+	mov	bx,word ptr ss:[_g_polyRasterState.prs_nRemapOff]
+	mov	ax,word ptr ss:[_g_polyRasterState.prs_e1_step + 2]
+	mov	word ptr cs:[_sv_istep],ax
+L_sv_col:
+	mov	si,word ptr cs:[_spr_data_ptr]
+	mov	ax,word ptr ss:[_g_polyRasterState.prs_e0_acc + 2]
+	mov	dx,0
+	imul	word ptr cs:[_spr_height]
+	add	si,ax
+	add	si,word ptr ss:[_g_polyRasterState.prs_e1_acc + 2]
+	push	edi
+	mov	dh,byte ptr ss:[_g_polyRasterState.prs_e1_step + 1]
+	mov	dl,byte ptr ss:[_g_polyRasterState.prs_e1_acc + 3]
+	mov	cx,word ptr [bp + 10h]
+	mov	byte ptr cs:[_sv_toggle],0
+L_sv_row:
+	mov	al,byte ptr [si]
+	add	dl,dh
+	adc	si,word ptr cs:[_sv_istep]
+	or	al,al
+	jz	L_sv_zero
+	test	word ptr [bp + 0ch],4
+	jnz	L_sv_fill
+	test	word ptr [bp + 0ch],8
+	jnz	L_sv_outline
+	or	bx,bx
+	jz	L_sv_put
+	db	02Eh
+	xlat
+	jmp	short L_sv_put
+L_sv_fill:
+	mov	al,byte ptr [bp + 12h]
+	jmp	short L_sv_put
+L_sv_outline:
+	xor	byte ptr cs:[_sv_toggle],1
+	jz	L_sv_put
+	mov	al,byte ptr [bp + 12h]
+L_sv_put:
+	mov	byte ptr fs:[edi],al
+	jmp	short L_sv_next
+L_sv_zero:
+	mov	byte ptr cs:[_sv_toggle],0
+L_sv_next:
+	add	edi,640
+	loop	L_sv_row
+	pop	edi
+	inc	edi
+	mov	eax,dword ptr ss:[_g_polyRasterState.prs_e0_step]
+	add	dword ptr ss:[_g_polyRasterState.prs_e0_acc],eax
+	dec	word ptr [bp + 0eh]
+	jnz	L_sv_col
+	pop	fs
+	jmp	L_return
+
+; ===========================================================================
+; SVGA path for polyrast_gouraud_blit_clipped: per column x, rows
+; [e0, e1) sampled from texture column e2 with an 8.8 vertical step;
+; rows outside [clip.ymin, clip.ymax] are skipped when the clip flag is set.
+; ===========================================================================
+_sv_gbase	dd	0
+_sv_vstep	dw	0
+_sv_rows	dw	0
+
+L_svga_gouraud:
+	push	0
+	push	0
+	push	es
+	call	dword ptr ss:[_g_renderer_vtable + 0ach]
+	add	sp,6
+	mov	word ptr cs:[_sv_gbase],ax
+	mov	word ptr cs:[_sv_gbase+2],dx
+	push	fs
+	push	0
+	pop	fs
+	mov	bx,word ptr ss:[_g_polyRasterState.prs_nRemapOff]
+L_svg_col:
+	mov	si,word ptr cs:[_DAT_169d_0f68]
+	mov	ax,word ptr ss:[_g_polyRasterState.prs_e2_acc + 2]
+	mov	dx,0h
+	imul	word ptr cs:[_DAT_169d_0f66]
+	add	si,ax
+	mov	cx,word ptr ss:[_g_polyRasterState.prs_e1_acc + 2]
+	sub	cx,word ptr ss:[_g_polyRasterState.prs_e0_acc + 2]
+	cmp	cx,1h
+	jle	L_svg_advance
+	mov	word ptr cs:[_sv_rows],cx
+	mov	dx,0h
+	mov	al,0h
+	mov	ah,byte ptr cs:[_DAT_169d_0f66]
+	dec	ah
+	idiv	cx
+	mov	word ptr cs:[_sv_vstep],ax
+	movsx	edi,word ptr ss:[_g_polyRasterState.prs_e0_acc + 2]
+	imul	edi,edi,640
+	movsx	eax,word ptr cs:[_DAT_169d_0f5e]
+	add	edi,eax
+	add	edi,dword ptr cs:[_sv_gbase]
+	mov	dx,word ptr ss:[_g_polyRasterState.prs_e0_acc + 2]
+	push	bp
+	mov	bp,80h
+L_svg_row:
+	push	si
+	mov	ax,bp
+	shr	ax,8
+	add	si,ax
+	mov	al,byte ptr [si]
+	pop	si
+	add	bp,word ptr cs:[_sv_vstep]
+	test	byte ptr cs:[_DAT_169d_0f6e],0fh
+	jz	L_svg_inside
+	cmp	dx,word ptr ss:[_g_graphics_context.nClip_ymin]
+	jl	L_svg_skip
+	cmp	dx,word ptr ss:[_g_graphics_context.nClip_ymax]
+	jg	L_svg_skip
+L_svg_inside:
+	or	al,al
+	jz	L_svg_skip
+	or	bx,bx
+	jz	L_svg_put
+	db	02Eh
+	xlat
+L_svg_put:
+	mov	byte ptr fs:[edi],al
+L_svg_skip:
+	add	edi,640
+	inc	dx
+	dec	word ptr cs:[_sv_rows]
+	jnz	L_svg_row
+	pop	bp
+L_svg_advance:
+	mov	eax,dword ptr ss:[_g_polyRasterState.prs_e0_step]
+	add	dword ptr ss:[_g_polyRasterState.prs_e0_acc],eax
+	mov	eax,dword ptr ss:[_g_polyRasterState.prs_e1_step]
+	add	dword ptr ss:[_g_polyRasterState.prs_e1_acc],eax
+	mov	eax,dword ptr ss:[_g_polyRasterState.prs_e2_step]
+	add	dword ptr ss:[_g_polyRasterState.prs_e2_acc],eax
+	inc	word ptr cs:[_DAT_169d_0f5e]
+	dec	word ptr cs:[_DAT_169d_0f5c]
+	jnz	L_svg_col
+	pop	fs
+	pop	ds
+	pop	di
+	pop	si
+	pop	bp
+	retf
 
 S169D_TEXT	ends
 	end

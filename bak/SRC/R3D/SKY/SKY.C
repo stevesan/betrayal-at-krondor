@@ -41,6 +41,18 @@ unsigned char far g_skyHorizonStrips[863] = {
     0x00, 0x00, 0xf7, 0x00, 0x02, 0x00, 0x00, 0x15, 0x30,
 };
 
+#define SKY_STRIP_COUNT 0x1b
+
+static unsigned int s_stripYTop[SKY_STRIP_COUNT];
+static unsigned int s_stripYBot[SKY_STRIP_COUNT];
+static unsigned char s_stripAutoTop[SKY_STRIP_COUNT];
+static unsigned char s_stripAutoBot[SKY_STRIP_COUNT];
+static int s_stripRowsKnown = 0;
+
+static int sky_strip_index(SkyStrip far *pStrip) {
+    return (int)(pStrip - (SkyStrip far *)g_skyHorizonStrips);
+}
+
 void sky_horizon_strip_compute_slope(SkyStrip far *pStrip) {
     unsigned int yTop;
     unsigned int yBot;
@@ -48,8 +60,8 @@ void sky_horizon_strip_compute_slope(SkyStrip far *pStrip) {
     unsigned int endOff;
     int slope;
 
-    yTop = (unsigned int)pStrip->bYTop;
-    yBot = (unsigned int)pStrip->bYBot;
+    yTop = s_stripYTop[sky_strip_index(pStrip)];
+    yBot = s_stripYBot[sky_strip_index(pStrip)];
     baseOff = (unsigned int)pStrip->bBaseRow * 0x50;
     endOff = baseOff + (unsigned int)pStrip->bEndRow * 0x50;
     if (yBot == yTop) {
@@ -70,24 +82,32 @@ void sky_horizon_strips_init(int a) {
     int i;
     int flags;
 
+    if (!s_stripRowsKnown) {
+        for (i = 0; i < SKY_STRIP_COUNT; i++) {
+            s_stripYTop[i] = ((SkyStrip far *)g_skyHorizonStrips)[i].bYTop;
+            s_stripYBot[i] = ((SkyStrip far *)g_skyHorizonStrips)[i].bYBot;
+            s_stripAutoTop[i] = s_stripYTop[i] == 0;
+            s_stripAutoBot[i] = s_stripYBot[i] == 0;
+        }
+        s_stripRowsKnown = 1;
+    }
+
     for (i = 0; i < 0x100; i++) {
         *(int far *)(g_skyHorizonStrips + 0x15f + i * 2) = -1;
     }
 
-    for (i = 0; i < 0x1b; i++) {
+    for (i = 0; i < SKY_STRIP_COUNT; i++) {
         if (((flags = ((SkyStrip far *)g_skyHorizonStrips)[i].bFlags) & 2) == 0 ||
             (g_engine_prefs->detail_level > 1) || (g_gameState.nZoneId == 6) ||
             (g_gameState.nZoneId == 9)) {
-            if (((SkyStrip far *)g_skyHorizonStrips)[i].bYTop == 0) {
-                ((SkyStrip far *)g_skyHorizonStrips)[i].bYTop =
-                    (unsigned char)g_graphics_context.clip.ymin;
+            if (s_stripAutoTop[i]) {
+                s_stripYTop[i] = g_graphics_context.clip.ymin;
             }
-            if (((SkyStrip far *)g_skyHorizonStrips)[i].bYBot == 0) {
-                ((SkyStrip far *)g_skyHorizonStrips)[i].bYBot =
-                    (unsigned char)g_graphics_context.clip.ymax;
+            if (s_stripAutoBot[i]) {
+                s_stripYBot[i] = g_graphics_context.clip.ymax;
             }
             if (((SkyStrip far *)g_skyHorizonStrips)[i].bHorizonOverride != 0) {
-                ((SkyStrip far *)g_skyHorizonStrips)[i].bYTop = (unsigned char)g_nHorizonRowY;
+                s_stripYTop[i] = g_nHorizonRowY;
             }
             *(int far *)(g_skyHorizonStrips +
                          (unsigned)((SkyStrip far *)g_skyHorizonStrips)[i].bKey * 2 + 0x15f) = i;
@@ -107,7 +127,7 @@ void sky_draw_ground_band(void) {
 
     g_vgablit_si_base = rec->wSiBase + (int)(g_nWorldRenderJitter & 0x3f);
     g_vgablit_si_stride = rec->nSiStride;
-    g_vgablit_row_sub = (unsigned int)rec->bYTop;
+    g_vgablit_row_sub = s_stripYTop[sky_strip_index(rec)];
     g_vgablit_row_count = 0;
 
     save_fill = g_renderer_vtable.pfn_fill_spans_dithered_modey;
@@ -143,7 +163,7 @@ void sky_polygon_draw_dispatch(unsigned int vcount, int *xs, int *ys) {
 
     g_vgablit_si_base = rec->wSiBase + (int)(g_nWorldRenderJitter & 0x3f);
     g_vgablit_si_stride = rec->nSiStride;
-    g_vgablit_row_sub = (unsigned int)rec->bYTop;
+    g_vgablit_row_sub = s_stripYTop[strip_idx];
 
     if (rec->bFlags & 1) {
         g_vgablit_row_count = (unsigned int)rec->bEndRow - 1;

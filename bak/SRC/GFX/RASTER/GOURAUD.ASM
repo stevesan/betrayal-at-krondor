@@ -39,6 +39,9 @@ prs_e2_acc      dd      ?       ; +12h  DGROUP+0x2a0  edge[2].acc
 prs_e2_step     dd      ?       ; +16h  DGROUP+0x2a4  edge[2].step
 PolyRasterState ends
 
+	extrn   _g_bSvgaDriver:word
+	extrn   _g_renderer_vtable:byte
+
 	extrn   _g_polyRasterState:byte   ; DGROUP+0x028e (PolyRasterState)
 
 ; The sprite remap table lives in segment S169D (u_169d2/polyrast's segment).
@@ -88,6 +91,8 @@ S180C_TEXT      SEGMENT BYTE PUBLIC USE16 'CODE'
 ; 4-byte near-call encoding instead of a 5-byte real far call).
 ; ============================================================================
 
+_gr_sv_base	dd	0
+
 ; void gfx_gouraud_blit_quad(undefined2 *quad, int *vy_array, int *vx_array)
 ;                             [BP+6]             [BP+8]          [BP+A]
 _gfx_gouraud_blit_quad  PROC FAR
@@ -110,6 +115,16 @@ L_row_fill:                                 ; target of LOOP at 0x0025
 	loop    L_row_fill                  ; 180c:0025
 	; load ES = wGfxBlitDstPage (VRAM segment)
 	mov     es,word ptr [_g_graphics_context.wGfxBlitDstPage] ; 180c:0027
+	cmp	word ptr ss:[_g_bSvgaDriver],0
+	je	L_gr_nosv
+	push	0
+	push	0
+	push	es
+	call	dword ptr ss:[_g_renderer_vtable+0ach]
+	add	sp,6
+	mov	word ptr cs:[_gr_sv_base],ax
+	mov	word ptr cs:[_gr_sv_base+2],dx
+L_gr_nosv:
 	; OUT 0x3c4, 2  (EGA sequencer - map mask register index)
 	mov     dx,3c4h                     ; 3c4h EGA SC index I/O port, feeds OUT (out(0x3c4,2))
 	mov     al,2                        ; 180c:002e
@@ -509,6 +524,8 @@ L_skip_done:                                ; 180c:044a
 	; draw_width+1 iterations
 	mov     cx,word ptr [bp - 01ch]     ; 180c:044a
 	inc     cx                          ; 180c:044d
+	cmp	word ptr ss:[_g_bSvgaDriver],0
+	jne	L_sv_span
 	; switch DS to texture segment
 	mov     bx,word ptr [bp + 6]        ; 180c:044e  bx = quad
 	mov     ds,word ptr [bx]            ; 180c:0451  DS = texture segment
@@ -562,6 +579,50 @@ L_remap_skip:                               ; 180c:04b7
 	mov     ax,ss                       ; 180c:04c0
 	mov     ds,ax                       ; 180c:04c2  restore DS
 	jmp     L_inner_next                ; 180c:04c4
+
+	; --- SVGA column loop (chunky, linear framebuffer) ---
+L_sv_span:
+	push	cx
+	movsx	edi,word ptr [bp + 0fe40h]
+	imul	edi,edi,640
+	add	edi,dword ptr cs:[_gr_sv_base]
+	movsx	ecx,word ptr [bp + 0fe2eh]
+	add	edi,ecx
+	pop	cx
+	push	fs
+	push	0
+	pop	fs
+	push	gs
+	mov	si,S169D_TEXT
+	mov	gs,si
+	mov	bx,word ptr [bp + 6]
+	mov	ds,word ptr [bx]
+	mov	bx,word ptr ss:[_g_polyRasterState.prs_nRemapOff]
+L_sv_px:
+	mov	si,word ptr [bp + 0fe4eh]
+	shl	si,1
+	mov	si,word ptr [bp + si + 0f910h]
+	add	si,word ptr [bp + 0fe44h]
+	add	dword ptr [bp + 0fe4ch],eax
+	add	dword ptr [bp + 0fe42h],edx
+	push	ax
+	mov	al,byte ptr [si]
+	or	al,al
+	jz	short L_sv_skip
+	or	bx,bx
+	jz	short L_sv_put
+	xlat	gs:bx
+L_sv_put:
+	mov	byte ptr fs:[edi],al
+L_sv_skip:
+	pop	ax
+	add	edi,640
+	loop	L_sv_px
+	pop	gs
+	pop	fs
+	mov	ax,ss
+	mov	ds,ax
+	jmp	L_inner_next
 L_inner_exit:                               ; 180c:04c7
 	; --- outer loop update ---
 	mov     ax,word ptr [bp + 0fe2ch]   ; 180c:04c7  vi

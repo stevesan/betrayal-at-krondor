@@ -16,6 +16,7 @@
 #include "SRC/GFX/SCREEN/SCREEN.H"
 #include "SRC/GAME/STATE/TIMERPL.H"
 #include "SRC/SCREENS/ITEMUSE.H"
+#include "SRC/GFX/DRIVER/VIDDRV.H"
 
 char g_abPaletteBlendLut[127];
 
@@ -103,7 +104,11 @@ void far palette_screen_clear_black(void) {
     g_graphics_context.bGfx_fill_enabled = 1;
     g_graphics_context.bGfx_outline_color = g_graphics_context.bGfx_fill_color =
         g_graphics_context.bGfx_dither_color = 0;
-    draw_rect_filled(0, 0, 0x140, 200);
+    if (g_bSvgaDriver) {
+        svga_clear_page(g_graphics_context.wVgaFrontPageBase);
+    } else {
+        draw_rect_filled(0, 0, 0x140, 200);
+    }
     g_graphics_context.wGfxBlitSrcPage = g_graphics_context.wVgaFrontPageBase;
     g_graphics_context.wGfxBlitDstPage = g_graphics_context.wVgaPage2Base;
     gfx_present_dispatch(0, 0, 0x140, 200);
