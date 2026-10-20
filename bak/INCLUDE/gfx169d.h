@@ -5,12 +5,7 @@ extern unsigned char far g_abCursorPaletteLut[256];
 
 extern unsigned char far g_abFogRemapTable[2560];
 
-#ifdef V102CD
-#define FOG_REMAP_TAB_OFF 0x66
-#define CURSOR_REMAP_TAB_OFF 0xa66
-#else
-#define FOG_REMAP_TAB_OFF 0x5c
-#define CURSOR_REMAP_TAB_OFF 0xa5c
-#endif
+#define FOG_REMAP_TAB_OFF ((unsigned)(unsigned long)(void far *)g_abFogRemapTable)
+#define CURSOR_REMAP_TAB_OFF ((unsigned)(unsigned long)(void far *)g_abCursorPaletteLut)
 
 #endif
