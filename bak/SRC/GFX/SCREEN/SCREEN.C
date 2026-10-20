@@ -210,19 +210,61 @@ void screen_cursor_hide(void) {
     g_cursor_prev_x[0].nX = -999;
 }
 
+/* mod: under SVGA the cursor roams the whole 640x480 page, not just the 320x200 UI box the
+ * logical coordinates are relative to. Cursor records stay logical (the game hit-tests them);
+ * the draw/restore/blit helpers switch the driver to the physical page while they work. */
+static int s_cursorSavedOx;
+static int s_cursorSavedOy;
+
+static void cursor_space_enter(int *x, int *y) {
+    if (g_bSvgaDriver) {
+        s_cursorSavedOx = g_svgaCurOriginX;
+        s_cursorSavedOy = g_svgaCurOriginY;
+        svga_set_origin(0, 0);
+        *x += g_svgaOriginX;
+        *y += g_svgaOriginY;
+    }
+}
+
+static void cursor_space_leave(void) {
+    if (g_bSvgaDriver) {
+        svga_set_origin(s_cursorSavedOx, s_cursorSavedOy);
+    }
+}
+
+static int cursor_space_width(void) {
+    return g_bSvgaDriver ? 640 : (int)g_wScreen_width;
+}
+
+static int cursor_space_height(void) {
+    return g_bSvgaDriver ? 480 : (int)g_wScreen_height;
+}
+
 void screen_cursor_draw(CursorState *cursor_rec, unsigned char far *buf) {
     int x_start;
     int row;
+    int h;
 
     x_start = cursor_rec->nX - cursor_rec->nHotX;
     row = cursor_rec->nY - cursor_rec->nHotY;
+    cursor_space_enter(&x_start, &row);
     if (x_start < 0) {
         x_start = 0;
     }
     if (row < 0) {
         row = 0;
     }
-    cga_save_rect_to_buffer(buf, x_start, row, cursor_rec->nWidth, cursor_rec->nHeight);
+    h = cursor_rec->nHeight;
+    if (g_bSvgaDriver) {
+        if (x_start > 640 - cursor_rec->nWidth) {
+            x_start = 640 - cursor_rec->nWidth;
+        }
+        if (row + h > 480) {
+            h = 480 - row;
+        }
+    }
+    cga_save_rect_to_buffer(buf, x_start, row, cursor_rec->nWidth, h);
+    cursor_space_leave();
     return;
 }
 
@@ -232,17 +274,46 @@ void screen_cursor_restore_background(CursorState *cur, unsigned char far *pBgBu
 
     x = cur->nX - cur->nHotX;
     row = cur->nY - cur->nHotY;
+    cursor_space_enter(&x, &row);
     if (x < 0) {
         x = 0;
     }
     if (row < 0) {
         row = 0;
     }
-    if (row + cur->nHeight > (int)g_wScreen_height - 1) {
-        cga_rect_paste_from_buffer(pBgBuffer, x, row, cur->nWidth, g_wScreen_height - row);
+    if (g_bSvgaDriver && x > 640 - cur->nWidth) {
+        x = 640 - cur->nWidth;
+    }
+    if (row + cur->nHeight > cursor_space_height() - 1) {
+        cga_rect_paste_from_buffer(pBgBuffer, x, row, cur->nWidth, cursor_space_height() - row);
     } else {
         cga_rect_paste_from_buffer(pBgBuffer, x, row, cur->nWidth, cur->nHeight);
     }
+    cursor_space_leave();
+}
+
+/* the cursor sprite itself, clipped to the whole screen */
+static void screen_cursor_blit(CursorState *cur) {
+    int x;
+    int y;
+    short savedClip[4];
+
+    x = cur->nX - cur->nHotX;
+    y = cur->nY - cur->nHotY;
+    cursor_space_enter(&x, &y);
+    savedClip[0] = g_graphics_context.clip.xmin;
+    savedClip[1] = g_graphics_context.clip.ymin;
+    savedClip[2] = g_graphics_context.clip.xmax;
+    savedClip[3] = g_graphics_context.clip.ymax;
+    g_graphics_context.clip.xmin = g_graphics_context.clip.ymin = 0;
+    g_graphics_context.clip.xmax = cursor_space_width() - 1;
+    g_graphics_context.clip.ymax = cursor_space_height() - 1;
+    blit_sprite_indirect((unsigned short)g_cursor_state[cur->shape], x, y, 0);
+    g_graphics_context.clip.xmin = savedClip[0];
+    g_graphics_context.clip.ymin = savedClip[1];
+    g_graphics_context.clip.xmax = savedClip[2];
+    g_graphics_context.clip.ymax = savedClip[3];
+    cursor_space_leave();
 }
 
 void screen_cur_refr_during_long_op(void) {
@@ -297,9 +368,7 @@ void screen_cur_refr_during_long_op(void) {
     screen_cursor_draw(&g_cursor_prev_x[1], pBgBuffer);
 
     if (g_cursor_hidden != 0 && g_cursor_prev_x[1].shape != 2) {
-        blit_sprite_indirect((unsigned short)g_cursor_state[g_cursor_prev_x[1].shape],
-                             g_cursor_prev_x[1].nX - g_cursor_prev_x[1].nHotX,
-                             g_cursor_prev_x[1].nY - g_cursor_prev_x[1].nHotY, 0);
+        screen_cursor_blit(&g_cursor_prev_x[1]);
     }
 
     g_graphics_context.wGfxBlitDstPage = g_graphics_context.wVgaPage2Base;
@@ -326,9 +395,7 @@ void far screen_frame_present(void) {
     screen_cursor_get_position(&g_cursor_prev_x[1].nX, &g_cursor_prev_x[1].nY);
     screen_cursor_draw(&g_cursor_prev_x[1], g_pActiveCursorBuf);
     if (g_cursor_prev_x[0].nX != -999 && g_cursor_hidden != 0 && g_cursor_prev_x[1].shape != 2) {
-        blit_sprite_indirect((unsigned short)g_cursor_state[g_cursor_prev_x[1].shape],
-                             g_cursor_prev_x[1].nX - g_cursor_prev_x[1].nHotX,
-                             g_cursor_prev_x[1].nY - g_cursor_prev_x[1].nHotY, 0);
+        screen_cursor_blit(&g_cursor_prev_x[1]);
     }
     screen_frame_flip();
     if ((unsigned char huge *)g_pActiveCursorBuf == (unsigned char huge *)g_pCursorScratchBuf1)
@@ -477,9 +544,7 @@ void far screen_wipe_horizontal(int x, int y, int w, int h) {
     screen_cursor_draw(&g_cursor_prev_x[0], g_pActiveCursorBuf);
 
     if (g_cursor_hidden != 0 && g_cursor_prev_x[0].shape != 2) {
-        blit_sprite_indirect((unsigned short)g_cursor_state[g_cursor_prev_x[0].shape],
-                             g_cursor_prev_x[0].nX - g_cursor_prev_x[0].nHotX,
-                             g_cursor_prev_x[0].nY - g_cursor_prev_x[0].nHotY, 0);
+        screen_cursor_blit(&g_cursor_prev_x[0]);
     }
 
     g_graphics_context.clip.xmax = x + w;
